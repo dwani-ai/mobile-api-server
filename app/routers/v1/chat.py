@@ -24,7 +24,6 @@ VALID_INDIC_CHAT_MODELS = ("gemma4",)
         "Generate a chat response from a prompt, language code, and model, "
         "with translation support and time-to-words conversion."
     ),
-    tags=["Chat"],
     responses={
         200: {"description": "Chat response", "model": ChatResponse},
         400: {"description": "Invalid prompt, language code, or model"},
