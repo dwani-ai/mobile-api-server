@@ -6,7 +6,6 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from app.config import get_settings
 from app.middleware.api_key import ApiKeyMiddleware
 from app.routers.v1 import router as v1_router
 
@@ -20,8 +19,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Mobile API", version="1.0.0", lifespan=lifespan)
-_settings = get_settings()
-app.add_middleware(ApiKeyMiddleware, settings=_settings)
+app.add_middleware(ApiKeyMiddleware)
 
 
 @app.exception_handler(RequestValidationError)

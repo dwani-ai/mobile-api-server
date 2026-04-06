@@ -71,6 +71,26 @@ async def test_v1_requires_key():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "headers",
+    [
+        {"X-API-Key": "X-API-Key"},
+        {"Api-Key": "opaque-secret"},
+        {"Authorization": "Bearer some-token"},
+    ],
+)
+async def test_v1_accepts_key_from_headers(headers, client_with_vllm, mock_vllm):
+    ac = client_with_vllm
+    r = await ac.post(
+        "/v1/translate",
+        headers=headers,
+        json={"text": "hello", "tgt_lang": "es"},
+    )
+    assert r.status_code == 200
+    mock_vllm.translate.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_indic_chat(client_with_vllm, mock_vllm, api_headers):
     ac = client_with_vllm
     r = await ac.post(
