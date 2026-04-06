@@ -1,17 +1,182 @@
-from fastapi import APIRouter, Depends, Header
+import logging
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+from fastapi import APIRouter, Depends, Header, HTTPException
+from openai import APIError, APITimeoutError
 
 from app.clients.vllm import VllmClient
+from app.config import get_settings
 from app.dependencies import deps_vllm
-from app.schemas.v1 import ChatRequest, ChatResponse
+from app.lang_names import get_language_name
+from app.schemas.v1 import (
+    ChatDirectRequest,
+    ChatDirectResponse,
+    ChatMessage,
+    ChatRequest,
+    IndicChatRequest,
+)
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+VALID_INDIC_CHAT_MODELS = ("gemma4",)
 
-@router.post("/indic_chat", response_model=ChatResponse)
+
+def _dwani_chat_direct_default_system() -> str:
+    ist = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%H:%M IST")
+    return (
+        "You are Dwani, a helpful assistant. Answer questions considering India as base country "
+        "and Karnataka as base state. Provide a concise response in one sentence maximum. "
+        "If the answer contains numerical digits, convert the digits into words. "
+        f"If the user asks the time, return the answer as the current time in India ({ist})."
+    )
+
+
+@router.post(
+    "/indic_chat",
+    response_model=ChatDirectResponse,
+    summary="Chat with AI",
+    description=(
+        "Generate a chat response from a prompt, language code, and model, "
+        "with translation support and time-to-words conversion."
+    ),
+    responses={
+        200: {"description": "Chat response", "model": ChatDirectResponse},
+        400: {"description": "Invalid prompt, language code, or model"},
+        504: {"description": "Chat service timeout"},
+    },
+)
 async def indic_chat(
-    chat_request: ChatRequest,
+    chat_request: IndicChatRequest,
     vllm: VllmClient = Depends(deps_vllm),
     _x_api_key: str | None = Header(None, alias="X-API-Key"),
-) -> ChatResponse:
+) -> ChatDirectResponse:
     _ = _x_api_key
-    return await vllm.chat(chat_request)
+    if not chat_request.prompt.strip():
+        raise HTTPException(status_code=400, detail="Prompt cannot be empty")
+    if len(chat_request.prompt) > 10000:
+        raise HTTPException(status_code=400, detail="Prompt cannot exceed 10000 characters")
+
+    if chat_request.model not in VALID_INDIC_CHAT_MODELS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid model. Choose from {list(VALID_INDIC_CHAT_MODELS)}",
+        )
+
+    settings = get_settings()
+    logger.debug(
+        "indic_chat prompt=%r src_lang=%s tgt_lang=%s model=%s",
+        chat_request.prompt,
+        chat_request.src_lang,
+        chat_request.tgt_lang,
+        chat_request.model,
+    )
+
+    language_name = get_language_name(chat_request.tgt_lang)
+    system_prompt = (
+        "You are dwani, a helpful assistant. Answer questions considering India as base "
+        "country and Karnataka as base state. Provide a concise response in one sentence "
+        f"maximum. Do not explain. Return answer only in {language_name}"
+    )
+
+    body = ChatRequest(
+        model=chat_request.model,
+        messages=[
+            ChatMessage(
+                role="system",
+                content=[{"type": "text", "text": system_prompt}],
+            ),
+            ChatMessage(
+                role="user",
+                content=[{"type": "text", "text": chat_request.prompt}],
+            ),
+        ],
+        temperature=0.3,
+        max_tokens=settings.max_tokens,
+    )
+
+    try:
+        out = await vllm.chat(body)
+        text = ""
+        if out.choices:
+            text = out.choices[0].message.content or ""
+        return ChatDirectResponse(response=text)
+    except APITimeoutError:
+        logger.error("Chat API request timed out")
+        raise HTTPException(status_code=504, detail="Chat service timeout") from None
+    except APIError as e:
+        logger.error("Chat API error: %s", e)
+        raise HTTPException(status_code=500, detail=f"Chat failed: {e}") from e
+    except Exception as e:
+        logger.exception("Error processing indic_chat")
+        raise HTTPException(status_code=500, detail=f"An error occurred: {e}") from e
+
+
+@router.post(
+    "/chat_direct",
+    response_model=ChatDirectResponse,
+    summary="Chat with AI",
+    description="Generate a chat response from a prompt and model; optional custom system prompt.",
+    responses={
+        200: {"description": "Chat response", "model": ChatDirectResponse},
+        400: {"description": "Invalid prompt or model"},
+        504: {"description": "Chat service timeout"},
+    },
+)
+async def chat_direct(
+    chat_request: ChatDirectRequest,
+    vllm: VllmClient = Depends(deps_vllm),
+    _x_api_key: str | None = Header(None, alias="X-API-Key"),
+) -> ChatDirectResponse:
+    _ = _x_api_key
+    if not chat_request.prompt.strip():
+        raise HTTPException(status_code=400, detail="Prompt cannot be empty")
+    if len(chat_request.prompt) > 10000:
+        raise HTTPException(status_code=400, detail="Prompt cannot exceed 10000 characters")
+
+    if chat_request.model not in VALID_INDIC_CHAT_MODELS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid model. Choose from {list(VALID_INDIC_CHAT_MODELS)}",
+        )
+
+    settings = get_settings()
+    system = (
+        chat_request.system_prompt.strip()
+        if chat_request.system_prompt.strip()
+        else _dwani_chat_direct_default_system()
+    )
+
+    body = ChatRequest(
+        model=chat_request.model,
+        messages=[
+            ChatMessage(
+                role="system",
+                content=[{"type": "text", "text": system}],
+            ),
+            ChatMessage(
+                role="user",
+                content=[{"type": "text", "text": chat_request.prompt}],
+            ),
+        ],
+        temperature=0.3,
+        max_tokens=settings.max_tokens,
+    )
+
+    try:
+        out = await vllm.chat(body)
+        text = ""
+        if out.choices:
+            text = out.choices[0].message.content or ""
+        return ChatDirectResponse(response=text)
+    except APITimeoutError:
+        logger.error("Chat API request timed out")
+        raise HTTPException(status_code=504, detail="Chat service timeout") from None
+    except APIError as e:
+        logger.error("Chat API error: %s", e)
+        raise HTTPException(status_code=500, detail=f"Chat failed: {e}") from e
+    except Exception as e:
+        logger.exception("Error processing chat_direct")
+        raise HTTPException(status_code=500, detail=f"An error occurred: {e}") from e

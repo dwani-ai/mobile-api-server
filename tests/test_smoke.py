@@ -34,7 +34,7 @@ def mock_vllm() -> MagicMock:
             ],
         )
     )
-    m.translate = AsyncMock(return_value=TranslationResponse(translated_text="hola"))
+    m.translate = AsyncMock(return_value=TranslationResponse(translations=["hola"]))
     m.visual_query = AsyncMock(return_value=VisualQueryResponse(answer="cat"))
     m.summarize_text = AsyncMock(return_value="short summary")
     return m
@@ -63,11 +63,53 @@ async def test_healthz_no_auth():
 
 
 @pytest.mark.asyncio
+async def test_v1_health_no_auth():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        r = await ac.get("/v1/health")
+    assert r.status_code == 200
+    assert r.json()["status"] == "healthy"
+    assert "model" in r.json()
+
+
+@pytest.mark.asyncio
+async def test_root_redirect_no_auth():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test", follow_redirects=False) as ac:
+        r = await ac.get("/")
+    assert r.status_code == 307
+    assert r.headers.get("location") == "/docs"
+
+
+@pytest.mark.asyncio
 async def test_v1_requires_key():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        r = await ac.post("/v1/translate", json={"text": "a", "tgt_lang": "es"})
+        r = await ac.post(
+            "/v1/translate",
+            json={"sentences": ["a"], "src_lang": "eng_Latn", "tgt_lang": "spa_Latn"},
+        )
     assert r.status_code == 401
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "headers",
+    [
+        {"X-API-Key": "X-API-Key"},
+        {"Api-Key": "opaque-secret"},
+        {"Authorization": "Bearer some-token"},
+    ],
+)
+async def test_v1_accepts_key_from_headers(headers, client_with_vllm, mock_vllm):
+    ac = client_with_vllm
+    r = await ac.post(
+        "/v1/translate",
+        headers=headers,
+        json={"sentences": ["hello"], "src_lang": "eng_Latn", "tgt_lang": "spa_Latn"},
+    )
+    assert r.status_code == 200
+    mock_vllm.translate.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -77,12 +119,27 @@ async def test_indic_chat(client_with_vllm, mock_vllm, api_headers):
         "/v1/indic_chat",
         headers=api_headers,
         json={
-            "model": "m",
-            "messages": [{"role": "user", "content": "hi"}],
+            "model": "gemma4",
+            "prompt": "hi",
+            "src_lang": "en",
+            "tgt_lang": "en",
         },
     )
     assert r.status_code == 200
-    assert r.json()["choices"][0]["message"]["content"] == "hello"
+    assert r.json()["response"] == "hello"
+    mock_vllm.chat.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_chat_direct(client_with_vllm, mock_vllm, api_headers):
+    ac = client_with_vllm
+    r = await ac.post(
+        "/v1/chat_direct",
+        headers=api_headers,
+        json={"model": "gemma4", "prompt": "hi", "system_prompt": ""},
+    )
+    assert r.status_code == 200
+    assert r.json()["response"] == "hello"
     mock_vllm.chat.assert_awaited_once()
 
 
@@ -92,10 +149,10 @@ async def test_translate(client_with_vllm, mock_vllm, api_headers):
     r = await ac.post(
         "/v1/translate",
         headers=api_headers,
-        json={"text": "hello", "tgt_lang": "es"},
+        json={"sentences": ["hello"], "src_lang": "eng_Latn", "tgt_lang": "spa_Latn"},
     )
     assert r.status_code == 200
-    assert r.json()["translated_text"] == "hola"
+    assert r.json()["translations"] == ["hola"]
     mock_vllm.translate.assert_awaited_once()
 
 

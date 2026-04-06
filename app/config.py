@@ -7,7 +7,6 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
-    api_keys: str = Field(default="dev-key", description="Comma-separated X-API-Key values")
     vllm_base_url: str = Field(
         default="http://127.0.0.1:8000/v1",
         validation_alias=AliasChoices("VLLM_BASE_URL", "LITELLM_API_BASE"),
@@ -25,16 +24,20 @@ class Settings(BaseSettings):
     )
 
     max_upload_mb: int = Field(default=50)
+    max_tokens: int = Field(
+        default=2048,
+        description="Default max_tokens for indic_chat and similar chat completions",
+    )
     stt_implementation: str = Field(
         default="stub",
         description="stub | vllm_gemma (Gemma 4 E2B ASR prompts + vLLM chat/completions)",
     )
     tts_implementation: str = Field(default="stub")
     ocr_implementation: str = Field(default="stub")
-
-    @property
-    def api_key_set(self) -> set[str]:
-        return {k.strip() for k in self.api_keys.split(",") if k.strip()}
+    cors_origins: str = Field(
+        default="*",
+        description="Comma-separated CORS allow_origins; * allows all (dwani-api-server style dev)",
+    )
 
 
 @lru_cache

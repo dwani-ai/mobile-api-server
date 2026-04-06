@@ -4,23 +4,38 @@ from fastapi import Request, Response
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from app.config import Settings
+
+def _extract_api_key(request: Request) -> str:
+    """First non-empty credential from X-API-Key, Api-Key, or Authorization: Bearer."""
+    h = request.headers
+    for name in ("x-api-key", "api-key"):
+        v = (h.get(name) or "").strip()
+        if v:
+            return v
+    auth = (h.get("authorization") or "").strip()
+    if auth.lower().startswith("bearer "):
+        token = auth[7:].strip()
+        if token:
+            return token
+    return ""
 
 
 class ApiKeyMiddleware(BaseHTTPMiddleware):
-    def __init__(self, app, settings: Settings) -> None:
-        super().__init__(app)
-        self._settings = settings
-
     async def dispatch(
         self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
     ) -> Response:
-        if request.url.path in ("/healthz", "/docs", "/openapi.json", "/redoc"):
+        if request.url.path in (
+            "/",
+            "/healthz",
+            "/v1/health",
+            "/docs",
+            "/openapi.json",
+            "/redoc",
+        ):
             return await call_next(request)
-        key = request.headers.get("X-API-Key")
-        if not key or key not in self._settings.api_key_set:
+        if not _extract_api_key(request):
             return JSONResponse(
                 status_code=401,
-                content={"detail": "Invalid or missing X-API-Key", "code": "unauthorized"},
+                content={"detail": "Invalid or missing API key", "code": "unauthorized"},
             )
         return await call_next(request)

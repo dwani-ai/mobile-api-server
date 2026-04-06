@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import json
 import logging
 from functools import lru_cache
 from typing import Any
@@ -8,6 +9,7 @@ from typing import Any
 from openai import AsyncOpenAI
 
 from app.config import get_settings
+from app.dwani_languages import language_display_name
 from app.prompts.gemma_e2b import asr_prompt
 from app.schemas.v1 import (
     ChatRequest,
@@ -44,6 +46,66 @@ def _mime_to_audio_format(mime_type: str | None) -> str:
     if m in ("audio/ogg", "audio/opus"):
         return "ogg"
     return "wav"
+
+
+def _strip_json_fence(raw: str) -> str:
+    s = (raw or "").strip()
+    if not s.startswith("```"):
+        return s
+    lines = s.split("\n")
+    out: list[str] = []
+    skip_first = True
+    for line in lines:
+        if skip_first and line.strip().startswith("```"):
+            skip_first = False
+            continue
+        if line.strip() == "```":
+            break
+        out.append(line)
+    return "\n".join(out).strip()
+
+
+def _parse_translation_json(content: str, *, expected_len: int) -> list[str]:
+    """Parse model output into a list of strings (dwani-api-server-compatible fallbacks)."""
+    cleaned = _strip_json_fence(content).strip()
+    try:
+        data = json.loads(cleaned)
+    except json.JSONDecodeError:
+        logger.warning("Translation response not JSON, using raw text: %s", cleaned[:200])
+        if expected_len == 1:
+            return [cleaned]
+        raise ValueError("Invalid response format from translation model") from None
+
+    translations: list[str] = []
+    if isinstance(data, list):
+        if all(isinstance(x, str) for x in data):
+            translations = list(data)
+        elif all(isinstance(x, dict) for x in data):
+            keys = ("translation", "translated", "tgt", "text", "tr")
+            for item in data:
+                val = None
+                for k in keys:
+                    if k in item and isinstance(item[k], str):
+                        val = item[k]
+                        break
+                if val is None:
+                    raise ValueError("Invalid response format from translation model")
+                translations.append(val)
+        else:
+            raise ValueError("Invalid response format from translation model")
+    elif isinstance(data, str):
+        translations = [data]
+    elif isinstance(data, dict) and "translations" in data and isinstance(data["translations"], list):
+        inner = data["translations"]
+        if not all(isinstance(x, str) for x in inner):
+            raise ValueError("Invalid response format from translation model")
+        translations = list(inner)
+    else:
+        raise ValueError("Invalid response format from translation model")
+
+    if len(translations) != expected_len:
+        raise ValueError("Invalid response format from translation model")
+    return translations
 
 
 class VllmClient:
@@ -99,20 +161,34 @@ class VllmClient:
         )
 
     async def translate(self, req: TranslationRequest) -> TranslationResponse:
-        model = req.model or self._settings.default_translate_model or self._settings.default_chat_model
-        src = req.src_lang or "auto"
-        user = (
-            f"Translate the following text from {src} to {req.tgt_lang}. "
-            "Reply with only the translated text, no quotes or explanation.\n\n"
-            f"{req.text}"
+        """Single batched LLM call returning a JSON array (see dwani-api-server /v1/translate)."""
+        model = self._settings.default_translate_model or self._settings.default_chat_model
+        src_name = language_display_name(req.src_lang)
+        tgt_name = language_display_name(req.tgt_lang)
+        n = len(req.sentences)
+        if n == 0:
+            return TranslationResponse(translations=[])
+
+        system_prompt = (
+            f"You are a professional translator. Translate the following list of sentences "
+            f"from {src_name} to {tgt_name}. Respond ONLY with a valid JSON array of the "
+            "translated sentences in the same order, without any additional text or explanations."
         )
+        sentences_text = "\n".join(f"{i + 1}. {s}" for i, s in enumerate(req.sentences))
+        user_prompt = f"Sentences to translate:\n\n{sentences_text}"
+
         resp = await self._client.chat.completions.create(
             model=model,
-            messages=[{"role": "user", "content": user}],
-            temperature=0.2,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.1,
+            max_tokens=2000,
         )
-        text = (resp.choices[0].message.content or "").strip()
-        return TranslationResponse(translated_text=text)
+        raw = (resp.choices[0].message.content or "").strip()
+        translations = _parse_translation_json(raw, expected_len=n)
+        return TranslationResponse(translations=translations)
 
     async def visual_query(
         self,
