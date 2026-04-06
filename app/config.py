@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     )
     tts_implementation: str = Field(default="stub")
     ocr_implementation: str = Field(default="stub")
+    cors_origins: str = Field(
+        default="*",
+        description="Comma-separated CORS allow_origins; * allows all (dwani-api-server style dev)",
+    )
 
 
 @lru_cache

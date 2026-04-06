@@ -24,7 +24,14 @@ class ApiKeyMiddleware(BaseHTTPMiddleware):
     async def dispatch(
         self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
     ) -> Response:
-        if request.url.path in ("/healthz", "/docs", "/openapi.json", "/redoc"):
+        if request.url.path in (
+            "/",
+            "/healthz",
+            "/v1/health",
+            "/docs",
+            "/openapi.json",
+            "/redoc",
+        ):
             return await call_next(request)
         if not _extract_api_key(request):
             return JSONResponse(

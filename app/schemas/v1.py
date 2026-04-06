@@ -38,6 +38,24 @@ class IndicChatRequest(BaseModel):
     model: str
 
 
+class ChatDirectRequest(BaseModel):
+    """Body for POST /v1/chat_direct (prompt + model + optional system prompt)."""
+
+    prompt: str = Field(..., description="Prompt for chat (max 10000 characters)", max_length=10000)
+    model: str = Field(default="gemma4", description="LLM model id")
+    system_prompt: str = Field(default="", description="Optional system prompt; if empty, a Dwani default is used")
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "prompt": "Hello, how are you?",
+                "model": "gemma4",
+                "system_prompt": "",
+            }
+        }
+    )
+
+
 class ChatDirectResponse(BaseModel):
     response: str = Field(..., description="Generated chat response")
 
@@ -77,7 +95,7 @@ class TranslationRequest(BaseModel):
         json_schema_extra={
             "example": {
                 "sentences": ["Hello", "How are you?"],
-                "src_lang": "en",
+                "src_lang": "eng_Latn",
                 "tgt_lang": "kan_Knda",
             }
         }

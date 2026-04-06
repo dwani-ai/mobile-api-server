@@ -63,12 +63,31 @@ async def test_healthz_no_auth():
 
 
 @pytest.mark.asyncio
+async def test_v1_health_no_auth():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        r = await ac.get("/v1/health")
+    assert r.status_code == 200
+    assert r.json()["status"] == "healthy"
+    assert "model" in r.json()
+
+
+@pytest.mark.asyncio
+async def test_root_redirect_no_auth():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test", follow_redirects=False) as ac:
+        r = await ac.get("/")
+    assert r.status_code == 307
+    assert r.headers.get("location") == "/docs"
+
+
+@pytest.mark.asyncio
 async def test_v1_requires_key():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         r = await ac.post(
             "/v1/translate",
-            json={"sentences": ["a"], "src_lang": "en", "tgt_lang": "es"},
+            json={"sentences": ["a"], "src_lang": "eng_Latn", "tgt_lang": "spa_Latn"},
         )
     assert r.status_code == 401
 
@@ -87,7 +106,7 @@ async def test_v1_accepts_key_from_headers(headers, client_with_vllm, mock_vllm)
     r = await ac.post(
         "/v1/translate",
         headers=headers,
-        json={"sentences": ["hello"], "src_lang": "en", "tgt_lang": "es"},
+        json={"sentences": ["hello"], "src_lang": "eng_Latn", "tgt_lang": "spa_Latn"},
     )
     assert r.status_code == 200
     mock_vllm.translate.assert_awaited_once()
@@ -112,12 +131,25 @@ async def test_indic_chat(client_with_vllm, mock_vllm, api_headers):
 
 
 @pytest.mark.asyncio
+async def test_chat_direct(client_with_vllm, mock_vllm, api_headers):
+    ac = client_with_vllm
+    r = await ac.post(
+        "/v1/chat_direct",
+        headers=api_headers,
+        json={"model": "gemma4", "prompt": "hi", "system_prompt": ""},
+    )
+    assert r.status_code == 200
+    assert r.json()["response"] == "hello"
+    mock_vllm.chat.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_translate(client_with_vllm, mock_vllm, api_headers):
     ac = client_with_vllm
     r = await ac.post(
         "/v1/translate",
         headers=api_headers,
-        json={"sentences": ["hello"], "src_lang": "en", "tgt_lang": "es"},
+        json={"sentences": ["hello"], "src_lang": "eng_Latn", "tgt_lang": "spa_Latn"},
     )
     assert r.status_code == 200
     assert r.json()["translations"] == ["hola"]

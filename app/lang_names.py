@@ -1,6 +1,8 @@
 """Map language codes to English names for prompts (fallback: the code itself)."""
 
-# Common codes for India-focused use; extend as needed.
+from app.dwani_languages import language_display_name
+
+# Common short ISO-style codes for India-focused use; extend as needed.
 _LANG_NAMES: dict[str, str] = {
     "en": "English",
     "hi": "Hindi",
@@ -34,7 +36,9 @@ _LANG_NAMES: dict[str, str] = {
 
 
 def get_language_name(code: str) -> str:
-    c = (code or "").strip().lower()
+    c = (code or "").strip()
     if not c:
         return "English"
-    return _LANG_NAMES.get(c, c)
+    if "_" in c:
+        return language_display_name(c)
+    return _LANG_NAMES.get(c.lower(), c)
