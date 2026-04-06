@@ -97,8 +97,10 @@ async def test_indic_chat(client_with_vllm, mock_vllm, api_headers):
         "/v1/indic_chat",
         headers=api_headers,
         json={
-            "model": "m",
-            "messages": [{"role": "user", "content": "hi"}],
+            "model": "gemma4",
+            "prompt": "hi",
+            "src_lang": "en",
+            "tgt_lang": "en",
         },
     )
     assert r.status_code == 200

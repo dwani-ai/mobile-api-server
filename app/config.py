@@ -24,6 +24,10 @@ class Settings(BaseSettings):
     )
 
     max_upload_mb: int = Field(default=50)
+    max_tokens: int = Field(
+        default=2048,
+        description="Default max_tokens for indic_chat and similar chat completions",
+    )
     stt_implementation: str = Field(
         default="stub",
         description="stub | vllm_gemma (Gemma 4 E2B ASR prompts + vLLM chat/completions)",

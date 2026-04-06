@@ -29,6 +29,15 @@ class ChatRequest(BaseModel):
     stop: list[str] | str | None = None
 
 
+class IndicChatRequest(BaseModel):
+    """Body for POST /v1/indic_chat (prompt + languages + model id)."""
+
+    prompt: str
+    src_lang: str
+    tgt_lang: str
+    model: str
+
+
 class ChatChoiceMessage(BaseModel):
     role: str
     content: str | None = None
