@@ -7,7 +7,12 @@ from app.clients.vllm import VllmClient
 from app.config import get_settings
 from app.dependencies import deps_vllm
 from app.lang_names import get_language_name
-from app.schemas.v1 import ChatMessage, ChatRequest, ChatResponse, IndicChatRequest
+from app.schemas.v1 import (
+    ChatDirectResponse,
+    ChatMessage,
+    ChatRequest,
+    IndicChatRequest,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -18,14 +23,14 @@ VALID_INDIC_CHAT_MODELS = ("gemma4",)
 
 @router.post(
     "/indic_chat",
-    response_model=ChatResponse,
+    response_model=ChatDirectResponse,
     summary="Chat with AI",
     description=(
         "Generate a chat response from a prompt, language code, and model, "
         "with translation support and time-to-words conversion."
     ),
     responses={
-        200: {"description": "Chat response", "model": ChatResponse},
+        200: {"description": "Chat response", "model": ChatDirectResponse},
         400: {"description": "Invalid prompt, language code, or model"},
         504: {"description": "Chat service timeout"},
     },
@@ -34,7 +39,7 @@ async def indic_chat(
     chat_request: IndicChatRequest,
     vllm: VllmClient = Depends(deps_vllm),
     _x_api_key: str | None = Header(None, alias="X-API-Key"),
-) -> ChatResponse:
+) -> ChatDirectResponse:
     _ = _x_api_key
     if not chat_request.prompt.strip():
         raise HTTPException(status_code=400, detail="Prompt cannot be empty")
@@ -80,7 +85,11 @@ async def indic_chat(
     )
 
     try:
-        return await vllm.chat(body)
+        out = await vllm.chat(body)
+        text = ""
+        if out.choices:
+            text = out.choices[0].message.content or ""
+        return ChatDirectResponse(response=text)
     except APITimeoutError:
         logger.error("Chat API request timed out")
         raise HTTPException(status_code=504, detail="Chat service timeout") from None

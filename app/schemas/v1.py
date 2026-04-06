@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ErrorResponse(BaseModel):
@@ -38,6 +38,14 @@ class IndicChatRequest(BaseModel):
     model: str
 
 
+class ChatDirectResponse(BaseModel):
+    response: str = Field(..., description="Generated chat response")
+
+    model_config = ConfigDict(
+        json_schema_extra={"example": {"response": "Hi there, I'm doing great!"}}
+    )
+
+
 class ChatChoiceMessage(BaseModel):
     role: str
     content: str | None = None
@@ -61,14 +69,29 @@ class ChatResponse(BaseModel):
 
 
 class TranslationRequest(BaseModel):
-    text: str
-    src_lang: str | None = None
-    tgt_lang: str
-    model: str | None = None
+    sentences: list[str] = Field(..., description="List of sentences to translate")
+    src_lang: str = Field(..., description="Source language code")
+    tgt_lang: str = Field(..., description="Target language code")
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "sentences": ["Hello", "How are you?"],
+                "src_lang": "en",
+                "tgt_lang": "kan_Knda",
+            }
+        }
+    )
 
 
 class TranslationResponse(BaseModel):
-    translated_text: str
+    translations: list[str] = Field(..., description="Translated sentences")
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {"translations": ["ನಮಸ್ಕಾರ", "ನೀವು ಹೇಗಿದ್ದೀರಿ?"]}
+        }
+    )
 
 
 # --- Visual query (POST v1/indic_visual_query) ---

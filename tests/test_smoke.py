@@ -34,7 +34,7 @@ def mock_vllm() -> MagicMock:
             ],
         )
     )
-    m.translate = AsyncMock(return_value=TranslationResponse(translated_text="hola"))
+    m.translate = AsyncMock(return_value=TranslationResponse(translations=["hola"]))
     m.visual_query = AsyncMock(return_value=VisualQueryResponse(answer="cat"))
     m.summarize_text = AsyncMock(return_value="short summary")
     return m
@@ -66,7 +66,10 @@ async def test_healthz_no_auth():
 async def test_v1_requires_key():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        r = await ac.post("/v1/translate", json={"text": "a", "tgt_lang": "es"})
+        r = await ac.post(
+            "/v1/translate",
+            json={"sentences": ["a"], "src_lang": "en", "tgt_lang": "es"},
+        )
     assert r.status_code == 401
 
 
@@ -84,7 +87,7 @@ async def test_v1_accepts_key_from_headers(headers, client_with_vllm, mock_vllm)
     r = await ac.post(
         "/v1/translate",
         headers=headers,
-        json={"text": "hello", "tgt_lang": "es"},
+        json={"sentences": ["hello"], "src_lang": "en", "tgt_lang": "es"},
     )
     assert r.status_code == 200
     mock_vllm.translate.assert_awaited_once()
@@ -104,7 +107,7 @@ async def test_indic_chat(client_with_vllm, mock_vllm, api_headers):
         },
     )
     assert r.status_code == 200
-    assert r.json()["choices"][0]["message"]["content"] == "hello"
+    assert r.json()["response"] == "hello"
     mock_vllm.chat.assert_awaited_once()
 
 
@@ -114,10 +117,10 @@ async def test_translate(client_with_vllm, mock_vllm, api_headers):
     r = await ac.post(
         "/v1/translate",
         headers=api_headers,
-        json={"text": "hello", "tgt_lang": "es"},
+        json={"sentences": ["hello"], "src_lang": "en", "tgt_lang": "es"},
     )
     assert r.status_code == 200
-    assert r.json()["translated_text"] == "hola"
+    assert r.json()["translations"] == ["hola"]
     mock_vllm.translate.assert_awaited_once()
 
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import logging
 from functools import lru_cache
@@ -99,20 +100,28 @@ class VllmClient:
         )
 
     async def translate(self, req: TranslationRequest) -> TranslationResponse:
-        model = req.model or self._settings.default_translate_model or self._settings.default_chat_model
-        src = req.src_lang or "auto"
-        user = (
-            f"Translate the following text from {src} to {req.tgt_lang}. "
-            "Reply with only the translated text, no quotes or explanation.\n\n"
-            f"{req.text}"
-        )
-        resp = await self._client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": user}],
-            temperature=0.2,
-        )
-        text = (resp.choices[0].message.content or "").strip()
-        return TranslationResponse(translated_text=text)
+        model = self._settings.default_translate_model or self._settings.default_chat_model
+        src = req.src_lang
+        tgt = req.tgt_lang
+
+        async def one_sentence(text: str) -> str:
+            user = (
+                f"Translate the following text from {src} to {tgt}. "
+                "Reply with only the translated text, no quotes or explanation.\n\n"
+                f"{text}"
+            )
+            resp = await self._client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": user}],
+                temperature=0.2,
+            )
+            return (resp.choices[0].message.content or "").strip()
+
+        if not req.sentences:
+            return TranslationResponse(translations=[])
+
+        translations = await asyncio.gather(*(one_sentence(s) for s in req.sentences))
+        return TranslationResponse(translations=list(translations))
 
     async def visual_query(
         self,

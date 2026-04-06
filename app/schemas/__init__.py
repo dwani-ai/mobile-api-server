@@ -1,6 +1,7 @@
 from app.schemas.v1 import (
     ChatChoice,
     ChatChoiceMessage,
+    ChatDirectResponse,
     ChatMessage,
     ChatRequest,
     ChatResponse,
@@ -17,6 +18,7 @@ from app.schemas.v1 import (
 __all__ = [
     "ChatChoice",
     "ChatChoiceMessage",
+    "ChatDirectResponse",
     "ChatMessage",
     "ChatRequest",
     "ChatResponse",
